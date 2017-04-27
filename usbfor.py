@@ -38,7 +38,7 @@ def recursive_extract(dirObject, parentPath, img, name):
 				parentPath.append(begin.info.name.name)
 				recursive_extract(sub_directory,parentPath,img,name)
 				parentPath.pop(-1)
-				print "\n\nDirectory: {0}".format(filepath)
+				print "Directory: {0}".format(filepath)
 
 			elif f_type == pytsk3.TSK_FS_META_TYPE_REG and begin.info.meta.size != 0:	#if file and size > 1
 				filedata = begin.read_random(0,begin.info.meta.size)
@@ -84,17 +84,8 @@ def device_event(observer, device):			#get more information
 	#print all usb_add events
 	if device.action == "add":				#only if its a usb add event
 		get_information(device)				#function to print usb information
-		os.setegid(0)
-		os.seteuid(0)
 		#Create image of USB device
 		if device.get('ID_FS_LABEL') is not None:
-			if args.d == True:
-				print '[+]Creating an image of this may take a while'
-				with open("/dev/{0}".format(device.sys_name),'rb') as f:
-					with open("image_{0}.dd".format(device.get('ID_FS_LABEL')), "wb") as i:
-						i.write(f.read())
-				print "[+]Completed imaging the USB Drive"
-			
 			#carve all files from USB partition
 			imghandle = pytsk3.Img_Info("/dev/{0}".format(device.sys_name))
 			filesystemObject = pytsk3.FS_Info(imghandle)
@@ -103,8 +94,6 @@ def device_event(observer, device):			#get more information
 			print "[+] Completed carving files from image"
 			
 			#submit carved files to cuckoo
-			os.setegid(lgid)
-			os.seteuid(luid)				##statically set uid change to dynamic
 			print "[+] Submitting all files found to Cuckoo"
 			listpid = subprocess.Popen(['./cuckoo/utils/submit.py','Carved_files_{0}/'.format(device.get('ID_FS_LABEL'))],stdout=subprocess.PIPE)
 			stoutlist = listpid.communicate()
@@ -117,6 +106,7 @@ def device_event(observer, device):			#get more information
 			if os.path.exists("cuckoo/storage/analyses/{0}/".format(acid[-1])):
 				print "[*] Summary"
 				print "Assesed Files : {0}".format(len(acid))
+				get_information(device)
 				for i in acid:								#output assesment information
 					print "Cuckoo Report can be found at - cuckoo/storage/analyses/{0}/".format(i)
 
@@ -130,7 +120,7 @@ args = parser.parse_args()
 
 # a few initilizations
 acid = []		#list to keep track of cuckoo id of files analysed
-stat_info = os.stat("cuckoo/")
+stat_info = os.stat("cuckoo/")		#find user's uid to appropriately call cuckoo
 luid = stat_info.st_uid
 lgid = stat_info.st_gid
 
@@ -142,29 +132,32 @@ if pid == 0:
 	try:
 		if args.d is not None:
 			for a in args.d:
-				os.setegid(lgid)
-				os.seteuid(luid)				##statically set uid change to dynamic
+				os.setgid(lgid)
+				os.setuid(luid)				##statically set uid change to dynamic
 				print '[+] Carving files from image'
+				z = a.split('/')[-1]
 				imghandle = pytsk3.Img_Info(a)
 				filesystemObject = pytsk3.FS_Info(imghandle)
 				dirObject = filesystemObject.open_dir(path="/")
-				recursive_extract(dirObject,[],a,a)
+				recursive_extract(dirObject,[],a,z)
 				print "[+] Completed carving files from image"
 				print "[+] Submitting all files found to Cuckoo"
-				ddpid = subprocess.Popen(['./cuckoo/utils/submit.py','Carved_files_{0}/'.format(a)],stdout=subprocess.PIPE)
+				ddpid = subprocess.Popen(['./cuckoo/utils/submit.py','Carved_files_{0}/'.format(z)],stdout=subprocess.PIPE)
 				stoutdd = ddpid.communicate()
-				if stoutdd is not None:
-					for cpid in stoutdd[0].split('\n'):
-						print cpid
-						acid.append(cpid.split(' ')[-1])
+				print "[+] Completed submitting files to cuckoo"
+				for cpid in stoutdd[0].split('\n'):
+					print cpid
+					acid.append(cpid.split(' ')[-1])
 				acid.pop()
-				time.sleep(5*len(acid))
-				if os.path.exists("cuckoo/storage/analyses/{0}/".format(acid[-1])):
-					print "[*] Summary"
-					print "Assesed Files : {0}".format(len(acid))
-					for i in acid:								#output assesment information
-						print "Cuckoo Report can be found at - cuckoo/storage/analyses/{0}/".format(i)
-				sys.exit(0)
+
+				#print analysis information
+				while True:
+					if os.path.exists("cuckoo/storage/analyses/{0}/reports/".format(acid[-1])):
+						print "[*] Summary"
+						print "Assesed Files : {0}".format(len(acid))
+						for i in acid:								#output assesment information
+							print "Cuckoo Report can be found at - cuckoo/storage/analyses/{0}/".format(i)
+						sys.exit(0)
 
 		if args.d is None:
 			#Initialize the monitors to hook onto usb daemon
@@ -182,12 +175,12 @@ if pid == 0:
 	except KeyboardInterrupt:
 		print "[*] Exiting tool"
 else :
-	try:	
-		os.setegid(lgid)
-		os.seteuid(luid)				##statically set uid change to dynamic
+	try:
+		os.setgid(lgid)
+		os.setuid(luid)				##statically set uid change to dynamic
 		print "[*] Starting Cuckoo Server"
 		serverpid = subprocess.Popen('./cuckoo/cuckoo.py',stdout=subprocess.PIPE,stderr=subprocess.PIPE)
-		serverstout,serverster = serverpid.communicate()
+		serout,sererr = serverpid.communicate()
 
 	except KeyboardInterrupt:
 		print "[-] Stopping Cuckoo Server"
