@@ -4,7 +4,8 @@ import os
 import argparse
 import subprocess
 import time
-
+import json
+import hashlib
 try:
 	import pyudev
 	from pyudev import Context, Monitor
@@ -77,12 +78,24 @@ def get_information(device):
 	print 'Vendor : {0}'.format(device.get('ID_VENDOR_FROM_DATABASE'))
 	print ""
 	
-	#confirm if information is correct
+	if args.r is True:
+		report += "USB DETECTED : \n"
+		report += "Name : {0}\n".format(device.sys_name)
+		report += "Type : {0}\n".format(device.device_type)
+		report += "Run Directory : {0}\n".format(device.context.run_path)
+		report += "Time since initialized : {0}\n".format(device.time_since_initialized)
+		report += 'Background event {0}: {1}\n'.format(device.action,device.device_path)
+		report += 'Bus Type : {0}\n'.format(device.get('ID_BUS'))
+		report += 'Partition Label : {0}\n'.format(device.get('ID_FS_LABEL'))
+		report += 'FileSystem : {0}\n'.format(device.get('ID_FS_TYPE'))
+		report += 'USB Driver : {0}\n'.format(device.get('ID_USB_DRIVER'))
+		report += 'Vendor : {0}\n'.format(device.get('ID_VENDOR_FROM_DATABASE'))
 
 def device_event(observer, device):			#get more information
 	
 	#print all usb_add events
 	if device.action == "add":				#only if its a usb add event
+		g['acid_{0}'.format(device.get('ID_FS_LABEL'))] = []
 		get_information(device)				#function to print usb information
 		#Create image of USB device
 		if device.get('ID_FS_LABEL') is not None:
@@ -100,15 +113,57 @@ def device_event(observer, device):			#get more information
 			if stoutlist is not None:
 				for cpid in stoutlist[0].split('\n'):
 					print cpid
-					acid.append(cpid.split(' ')[-1])
-			acid.pop()
-			time.sleep(5*len(acid))
-			if os.path.exists("cuckoo/storage/analyses/{0}/".format(acid[-1])):
-				print "[*] Summary"
-				print "Assesed Files : {0}".format(len(acid))
-				get_information(device)
-				for i in acid:								#output assesment information
-					print "Cuckoo Report can be found at - cuckoo/storage/analyses/{0}/".format(i)
+					g['acid_{0}'.format(device.get('ID_FS_LABEL'))].append(cpid.split(' ')[-1])
+			g['acid_{0}'.format(device.get('ID_FS_LABEL'))].pop()
+			while True:
+				if os.path.exists("cuckoo/storage/analyses/{0}/".format(g['acid_{0}'.format(device.get('ID_FS_LABEL'))][-1])):
+					print "[*] Summary"
+					print "Assesed Files : {0}".format(len(g['acid_{0}'.format(device.get('ID_FS_LABEL'))]))
+					if args.r is True:
+						report = "[*] Summary\nAssesed Files : {0}\n----------------------\n".format(len(g['acid_{0}'.format(device.get('ID_FS_LABEL'))]))
+					get_information(device)
+					for i in g['acid_{0}'.format(device.get('ID_FS_LABEL'))]:								#output assesment information
+						if os.path.exists("cuckoo/storage/analyses/{0}/reports/".format(i)):
+							try :
+								rjsdata = None
+								rjsdata = json.loads(open("cuckoo/storage/analyses/{0}/reports/report.json".format(i),'r').read())
+
+								print 'Summarized Cuckoo report of file {0} given below.'.format(rjsdata['target']['file']['name'])
+								print 'File : {0}'.format(rjsdata['target']['file']['name'])
+								print 'Cuckoo id : {0}'.format(rjsdata['info']['id'])
+								print 'Cuckoo score : {0}'.format(rjsdata['info']['score'])
+								print 'File Type : {0}'.format(rjsdata['target']['file']['type'])
+								print 'File Hash [SHA1] : {0}'.format(rjsdata['target']['file']['sha1'])
+								print 'File Hash [MD5] : {0}'.format(rjsdata['target']['file']['md5'])
+								print 'VirusTotal Summary : {0}'.format(rjsdata['virustotal']['summary'])
+								print "Full Cuckoo report can be found at - cuckoo/storage/analyses/{0}/reports/\n".format(i)
+
+								if args.r is True:
+									report += 'Summarized Cuckoo report of file {0} given below.\n'.format(rjsdata['target']['file']['name'])
+									report += 'File : {0}\n'.format(rjsdata['target']['file']['name'])
+									report += 'Cuckoo id : {0}\n'.format(rjsdata['info']['id'])
+									report += 'Cuckoo score : {0}\n'.format(rjsdata['info']['score'])
+									report += 'File Type : {0}\n'.format(rjsdata['target']['file']['type'])
+									report += 'File Hash [SHA1] : {0}\n'.format(rjsdata['target']['file']['sha1'])
+									report += 'File Hash [MD5] : {0}\n'.format(rjsdata['target']['file']['md5'])
+									report += 'VirusTotal Summary : {0}\n'.format(rjsdata['virustotal']['summary'])
+									report += "Full Cuckoo report can be found at - cuckoo/storage/analyses/{0}/reports/\n\n".format(i)
+
+							except ValueError:
+								print '[-] Unable to parse the json report file. Report can be found here - cuckoo/storage/analyses/{0}/reports/\n'.format(i)
+								report += 'Full Report can be found here - cuckoo/storage/analyses/{0}/reports/\n'.format(i)
+							except KeyError:
+								print '[-] Unable to parse the json report file. Report can be found here - cuckoo/storage/analyses/{0}/reports/\n'.format(i)
+								report += 'Full Report can be found here - cuckoo/storage/analyses/{0}/reports/\n'.format(i)
+
+						if args.r is True:
+							m =hashlib.md5()
+							m.update(report)
+							with open('Report-{0}.txt'.format(m.hexdigest()),'w') as rgen:
+								rgen.write(report)
+								rgen.close()
+							print 'The Generated report can be found at - Report-{0}'.format(m.hexdigest())
+					break
 
 
 #Argparse configuration
@@ -119,13 +174,15 @@ parser.add_argument("-c", "--clean", dest='c', action='store_true', help="Clean 
 args = parser.parse_args()
 
 # a few initilizations
-acid = []		#list to keep track of cuckoo id of files analysed
+g = globals()
 stat_info = os.stat("cuckoo/")		#find user's uid to appropriately call cuckoo
 luid = stat_info.st_uid
 lgid = stat_info.st_gid
 
 if args.c is True:
 	subprocess.call(['./cuckoo/cuckoo.py','--clean'])
+if args.r is True:
+	report = ""
 
 pid = os.fork()
 if pid == 0:
@@ -139,7 +196,8 @@ if pid == 0:
 				imghandle = pytsk3.Img_Info(a)
 				filesystemObject = pytsk3.FS_Info(imghandle)
 				dirObject = filesystemObject.open_dir(path="/")
-				recursive_extract(dirObject,[],a,z)
+				#recursive_extract(dirObject,[],a,z)
+				g['acid_{0}'.format(z)] = []
 				print "[+] Completed carving files from image"
 				print "[+] Submitting all files found to Cuckoo"
 				ddpid = subprocess.Popen(['./cuckoo/utils/submit.py','Carved_files_{0}/'.format(z)],stdout=subprocess.PIPE)
@@ -147,16 +205,56 @@ if pid == 0:
 				print "[+] Completed submitting files to cuckoo"
 				for cpid in stoutdd[0].split('\n'):
 					print cpid
-					acid.append(cpid.split(' ')[-1])
-				acid.pop()
+					g['acid_{0}'.format(z)].append(cpid.split(' ')[-1])
+				g['acid_{0}'.format(z)].pop()
 
 				#print analysis information
 				while True:
-					if os.path.exists("cuckoo/storage/analyses/{0}/reports/".format(acid[-1])):
+					if os.path.exists("cuckoo/storage/analyses/{0}/reports/".format(g['acid_{0}'.format(z)][-1])):
 						print "[*] Summary"
-						print "Assesed Files : {0}".format(len(acid))
-						for i in acid:								#output assesment information
-							print "Cuckoo Report can be found at - cuckoo/storage/analyses/{0}/".format(i)
+						print "Assesed Files : {0}\n----------------------".format(len(g['acid_{0}'.format(z)]))
+						if args.r is True:
+							report = "[*] Summary\nAssesed Files : {0}\n----------------------\n".format(len(g['acid_{0}'.format(z)]))
+						for i in g['acid_{0}'.format(z)]:								#output assesment information
+							if os.path.exists("cuckoo/storage/analyses/{0}/reports/".format(i)):
+								try :
+									rjsdata = None
+									rjsdata = json.loads(open("cuckoo/storage/analyses/{0}/reports/report.json".format(i),'r').read())
+
+									print 'Summarized Cuckoo report of file {0} given below.'.format(rjsdata['target']['file']['name'])
+									print 'File : {0}'.format(rjsdata['target']['file']['name'])
+									print 'Cuckoo id : {0}'.format(rjsdata['info']['id'])
+									print 'Cuckoo score : {0}'.format(rjsdata['info']['score'])
+									print 'File Type : {0}'.format(rjsdata['target']['file']['type'])
+									print 'File Hash [SHA1] : {0}'.format(rjsdata['target']['file']['sha1'])
+									print 'File Hash [MD5] : {0}'.format(rjsdata['target']['file']['md5'])
+									print 'VirusTotal Summary : {0}'.format(rjsdata['virustotal']['summary'])
+									print "Full Cuckoo report can be found at - cuckoo/storage/analyses/{0}/reports/\n".format(i)
+
+									if args.r is True:
+										report += 'Summarized Cuckoo report of file {0} given below.\n'.format(rjsdata['target']['file']['name'])
+										report += 'File : {0}\n'.format(rjsdata['target']['file']['name'])
+										report += 'Cuckoo id : {0}\n'.format(rjsdata['info']['id'])
+										report += 'Cuckoo score : {0}\n'.format(rjsdata['info']['score'])
+										report += 'File Type : {0}\n'.format(rjsdata['target']['file']['type'])
+										report += 'File Hash [SHA1] : {0}\n'.format(rjsdata['target']['file']['sha1'])
+										report += 'File Hash [MD5] : {0}\n'.format(rjsdata['target']['file']['md5'])
+										report += 'VirusTotal Summary : {0}\n'.format(rjsdata['virustotal']['summary'])
+										report += "Full Cuckoo report can be found at - cuckoo/storage/analyses/{0}/reports/\n\n".format(i)
+
+								except ValueError:
+									print '[-] Unable to parse the json report file. Report can be found here - cuckoo/storage/analyses/{0}/reports/\n'.format(i)
+									report += 'Full Report can be found here - cuckoo/storage/analyses/{0}/reports/\n'.format(i)
+								except KeyError:
+									print '[-] Unable to parse the json report file. Report can be found here - cuckoo/storage/analyses/{0}/reports/\n'.format(i)
+									report += 'Full Report can be found here - cuckoo/storage/analyses/{0}/reports/\n'.format(i)
+						if args.r is True:
+							m =hashlib.md5()
+							m.update(report)
+							with open('Report-{0}.txt'.format(m.hexdigest()),'w') as rgen:
+								rgen.write(report)
+								rgen.close()
+							print 'The Generated report can be found at - Report-{0}'.format(m.hexdigest())
 						sys.exit(0)
 
 		if args.d is None:
