@@ -23,15 +23,15 @@ optional arguments:
 3. pytsk3 - ```pip install pytsk3```
 
 ### Install steps
-```
+
 1. Install cuckoo - [Cuckoo Sandbox](https://cuckoosandbox.org/)
    Cuckcoo sandbox will be to be setup properly for the script to run. 
    The install instruction to setup cuckoo properly can be found [here](http://docs.cuckoosandbox.org/en/latest/installation/)
-2. Change the path to Cuckoo Sandbox in Config.py
-   Default path assumes that you have the cuckoo in the same directory as the script
+2. Install cuckoo in the same directory as the script
+   Tool assumes that you have the cuckoo in the same directory.
 3. Run tool with sudo priviledges
    Tool requires sudo to access the USB's /dev partition.
-```
+
 ### File hashes
 sha1 hashes of all files given below.
 
