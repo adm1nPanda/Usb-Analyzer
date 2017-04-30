@@ -36,10 +36,3 @@ optional arguments:
    The install instruction to setup cuckoo properly can be found [here](http://docs.cuckoosandbox.org/en/latest/installation/)
 2. Run tool with sudo priviledges
    Tool requires sudo to access the USB's '/dev' partition.
-
-### File hashes
-sha1 hashes of all files given below.
-
-1. usbfor.py - 
-
-
